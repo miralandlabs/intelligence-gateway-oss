@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const SRD_VERSION = "2026.06-srd-v1";
+
 export const AuthTypeSchema = z.enum(["x402-token", "bearer", "signed", "none"]);
 
 export const ServiceDescriptorSchema = z.object({

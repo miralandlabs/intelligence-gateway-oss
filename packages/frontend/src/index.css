@@ -215,6 +215,36 @@ h1, h2, h3, h4 {
   box-shadow: 0 0 10px var(--success-glow);
 }
 
+.badge-unknown {
+  background: rgba(161, 161, 170, 0.1);
+  color: var(--text-secondary);
+  border: 1px solid rgba(161, 161, 170, 0.2);
+}
+
+.badge-warn {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.register-btn {
+  margin-top: 0.5rem;
+  padding: 0.85rem 2rem;
+  border-radius: 9999px;
+  border: none;
+  background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan));
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font-body);
+}
+
+.register-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 .endpoint-info {
   display: flex;
   align-items: center;

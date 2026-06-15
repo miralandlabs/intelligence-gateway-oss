@@ -5,40 +5,59 @@ import {
   Globe,
   ChevronDown,
   ChevronUp,
-  Terminal,
-  Cpu,
-  Fingerprint,
+  Activity,
   Loader2,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
+  BookOpen,
 } from "lucide-react";
 import "./index.css";
 
 const API_BASE = "https://intel.pr402.org";
 
-// ─── Types ───────────────────────────────────────────────────────
-interface SignalResult {
-  signal_key: string;
-  signal_type: string;
-  score?: number;
-  recommendation?: string;
-  payload?: Record<string, unknown>;
-  computed_at?: string;
+interface ReadinessSnapshot {
+  entity_key: string;
+  usable: boolean | null;
+  confidence: number;
+  latency_ms: number | null;
+  state: "healthy" | "degraded" | "down" | "unknown";
+  last_verified: string | null;
+  payment_model: string | null;
 }
 
-interface EntityResult {
+interface ServiceResult {
+  entity_key: string;
+  entity_type: string;
+  display_name?: string;
+  domain?: string;
+  endpoint_url?: string;
+  capabilities: string[];
+  payment_model: string | null;
+  is_verified: boolean;
+  readiness: ReadinessSnapshot | null;
+}
+
+interface SignalResult {
+  signal_key: string;
+  recommendation?: string;
+  score?: number;
+  payload?: Record<string, unknown>;
+}
+
+interface EntitySearchResult {
   entity_key: string;
   entity_type: string;
   display_name?: string;
   domain?: string;
   endpoint_url?: string;
   is_verified: boolean;
-  updated_at?: string;
   signals?: SignalResult[];
 }
 
-// ─── Utility: Debounce ──────────────────────────────────────────
+const ENTITY_TYPES = ["api", "vendor", "domain", "protocol", "other"] as const;
+const AUTH_TYPES = ["none", "x402-token", "bearer", "signed"] as const;
+
 function useDebounce(value: string, delay: number) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -48,27 +67,50 @@ function useDebounce(value: string, delay: number) {
   return debounced;
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  App
-// ═══════════════════════════════════════════════════════════════
-export default function App() {
-  // ── Search state ──
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<EntityResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+function ReadinessBadge({ readiness }: { readiness: ReadinessSnapshot | null }) {
+  if (!readiness) {
+    return <span className="badge badge-unknown">Not probed</span>;
+  }
+  const cls =
+    readiness.state === "healthy"
+      ? "badge badge-verified"
+      : readiness.state === "unknown"
+        ? "badge badge-unknown"
+        : "badge badge-warn";
+  const label =
+    readiness.usable === true
+      ? "Usable"
+      : readiness.usable === false
+        ? "Not usable"
+        : readiness.state;
+  return (
+    <span className={cls}>
+      <Activity size={14} /> {label}
+      {readiness.latency_ms != null ? ` · ${readiness.latency_ms}ms` : ""}
+    </span>
+  );
+}
 
-  // ── Registration state ──
+export default function App() {
+  const [capabilityFilter, setCapabilityFilter] = useState("");
+  const [query, setQuery] = useState("");
+  const [services, setServices] = useState<ServiceResult[]>([]);
+  const [searchResults, setSearchResults] = useState<EntitySearchResult[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [mode, setMode] = useState<"browse" | "search">("browse");
+
   const [entityKey, setEntityKey] = useState("");
-  const [entityType, setEntityType] = useState("vendor");
+  const [entityType, setEntityType] = useState("api");
   const [displayName, setDisplayName] = useState("");
   const [domain, setDomain] = useState("");
   const [endpointUrl, setEndpointUrl] = useState("");
   const [ownerKey, setOwnerKey] = useState("");
   const [requestMonitoring, setRequestMonitoring] = useState(true);
   const [paymentModel, setPaymentModel] = useState("x402");
+  const [authType, setAuthType] = useState("none");
   const [capabilities, setCapabilities] = useState("");
   const [probeUrl, setProbeUrl] = useState("");
+  const [monitorTier, setMonitorTier] = useState("2");
   const [isRegistering, setIsRegistering] = useState(false);
   const [regStatus, setRegStatus] = useState<{
     ok: boolean;
@@ -78,33 +120,41 @@ export default function App() {
 
   const debouncedQuery = useDebounce(query, 400);
 
-  // ── Live search ──
-  const doSearch = useCallback(async (q: string) => {
-    if (!q.trim()) {
-      setResults([]);
-      setHasSearched(false);
-      return;
-    }
-    setIsSearching(true);
+  const loadServices = useCallback(async (capability?: string) => {
+    setIsLoading(true);
+    setMode("browse");
     try {
-      const res = await fetch(
-        `${API_BASE}/v1/search?q=${encodeURIComponent(q)}`
-      );
+      const params = new URLSearchParams({ payment_model: "x402" });
+      if (capability?.trim()) params.set("capability", capability.trim());
+      const res = await fetch(`${API_BASE}/v1/services?${params}`);
       const json = await res.json();
-      setResults(json.results ?? []);
+      setServices(json.results ?? []);
     } catch {
-      setResults([]);
+      setServices([]);
     } finally {
-      setIsSearching(false);
-      setHasSearched(true);
+      setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    doSearch(debouncedQuery);
-  }, [debouncedQuery, doSearch]);
+    loadServices();
+  }, [loadServices]);
 
-  // ── Self-service registration ──
+  useEffect(() => {
+    if (!debouncedQuery.trim()) {
+      setSearchResults([]);
+      if (!debouncedQuery) setMode("browse");
+      return;
+    }
+    setMode("search");
+    setIsLoading(true);
+    fetch(`${API_BASE}/v1/search?q=${encodeURIComponent(debouncedQuery)}`)
+      .then((res) => res.json())
+      .then((json) => setSearchResults(json.results ?? []))
+      .catch(() => setSearchResults([]))
+      .finally(() => setIsLoading(false));
+  }, [debouncedQuery]);
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsRegistering(true);
@@ -127,34 +177,38 @@ export default function App() {
           endpoint_url: endpointUrl.trim() || undefined,
           owner_key: ownerKey.trim() || undefined,
           request_monitoring: requestMonitoring,
+          monitor_tier: Number(monitorTier),
           sds: {
             payment_model: paymentModel || undefined,
+            auth_type: authType,
             capabilities: capabilities
               .split(",")
               .map((c) => c.trim())
               .filter(Boolean),
             probe_url: probeUrl.trim() || undefined,
+            probe_tier: Number(monitorTier),
           },
         }),
       });
       const json = await res.json();
       if (res.ok) {
-        setRegStatus({ ok: true, message: json.message ?? "Entity registered successfully." });
+        setRegStatus({
+          ok: true,
+          message: `${json.message ?? "Registered."} Monitoring: ${json.is_monitored ? "on" : "off"}.`,
+        });
         setEntityKey("");
-        setEntityType("vendor");
         setDisplayName("");
         setDomain("");
         setEndpointUrl("");
         setOwnerKey("");
-        setRequestMonitoring(true);
-        setPaymentModel("x402");
         setCapabilities("");
         setProbeUrl("");
+        loadServices(capabilityFilter);
       } else {
-        setRegStatus({ 
-          ok: false, 
+        setRegStatus({
+          ok: false,
           message: json.error ?? "Registration failed.",
-          hint: json.hint 
+          hint: json.hint,
         });
       }
     } catch {
@@ -164,464 +218,294 @@ export default function App() {
     }
   };
 
+  const inputStyle = {
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid var(--border-color)",
+    borderRadius: 8,
+    padding: "0.75rem 1rem",
+    color: "var(--text-primary)",
+    fontSize: "1rem",
+    width: "100%",
+  } as const;
+
   return (
     <div className="container">
-      {/* ── Hero Header ── */}
       <header className="header">
         <h1>
-          <span className="gradient-text">pr402</span>{" "}
-          <span className="accent-text-glow">Intelligence Gateway</span>
+          <span className="gradient-text">x402</span>{" "}
+          <span className="accent-text-glow">Readiness Oracle</span>
         </h1>
         <p>
-          x402 paid service discovery and readiness oracle. Agents call{" "}
-          <code>/v1/services/:key/ready</code> before spending on a paid API call.
+          Register paid API services (SRD v1), discover by capability, and expose{" "}
+          <code>/v1/services/:key/ready</code> for agents.
         </p>
       </header>
 
-      {/* ── Search Bar ── */}
       <div className="search-wrapper">
-        <div className="search-input-container">
+        <div className="search-input-container" style={{ marginBottom: "0.75rem" }}>
           <Search size={20} className="search-icon" />
           <input
-            id="search-input"
             className="search-input"
             type="text"
-            placeholder="Search entities, vendors, APIs, datasets, or feeds"
+            placeholder="Search by name or domain..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          {isSearching && (
+          {isLoading && (
             <Loader2 size={20} className="search-icon" style={{ animation: "spin 1s linear infinite" }} />
           )}
         </div>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            className="search-input"
+            style={{ ...inputStyle, flex: "1 1 200px", maxWidth: 320 }}
+            placeholder="Filter capability (e.g. search)"
+            value={capabilityFilter}
+            onChange={(e) => setCapabilityFilter(e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => loadServices(capabilityFilter)}
+            style={{
+              padding: "0.65rem 1.25rem",
+              borderRadius: 9999,
+              border: "1px solid var(--border-color)",
+              background: "rgba(255,255,255,0.06)",
+              color: "var(--text-primary)",
+              cursor: "pointer",
+            }}
+          >
+            Browse x402 services
+          </button>
+        </div>
       </div>
 
-      {/* ── Results ── */}
-      {hasSearched && (
-        <div className="results-grid">
-          {results.length === 0 ? (
+      <div className="results-grid">
+        {mode === "browse" ? (
+          services.length === 0 ? (
             <div className="status-message">
-              <Search size={40} style={{ opacity: 0.3 }} />
-              <span>
-                No entities found for "<strong>{query}</strong>".
-              </span>
-              <span style={{ fontSize: "0.9rem" }}>
-                Register an entity below to populate the catalog.
-              </span>
+              <span>No monitored x402 services yet. Register one below.</span>
             </div>
           ) : (
-            results.map((entity) => (
-              <EntityCard key={entity.entity_key} entity={entity} />
-            ))
-          )}
-        </div>
-      )}
+            services.map((s) => <ServiceCard key={s.entity_key} service={s} />)
+          )
+        ) : searchResults.length === 0 ? (
+          <div className="status-message">
+            <span>No results for &quot;{query}&quot;</span>
+          </div>
+        ) : (
+          searchResults.map((e) => <SearchResultCard key={e.entity_key} entity={e} />)
+        )}
+      </div>
 
-      {/* ── Self-Service Registration ── */}
-      <section className="onboarding-card" style={{ marginBottom: "4rem" }}>
-        <h2 className="gradient-text">Register an Entity</h2>
+      <section className="onboarding-card" style={{ marginBottom: "3rem" }}>
+        <h2 className="gradient-text">Register a Service (SRD v1)</h2>
         <p className="onboarding-subtitle">
-          Submit a domain, API, vendor, dataset, or market. Domain-control
-          proof is optional, but verified entities get a stronger evidence badge.
+          Sellers self-register probe metadata. Requires a public <code>probe_url</code> (health check).
+          See <a href="#srd-v1">SRD v1 spec</a> below.
         </p>
 
         <form
           onSubmit={handleRegister}
           style={{ maxWidth: 560, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1rem" }}
         >
-          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-            Entity Key
-          </label>
-          <input
-            id="entity-key"
-            className="search-input"
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--border-color)",
-              borderRadius: 8,
-              padding: "0.75rem 1rem",
-              color: "var(--text-primary)",
-              fontSize: "1rem",
-            }}
-            placeholder="stripe.com"
-            value={entityKey}
-            onChange={(e) => setEntityKey(e.target.value)}
-            required
-          />
-
-          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-            Entity Type
-          </label>
-          <input
-            id="entity-type"
-            className="search-input"
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--border-color)",
-              borderRadius: 8,
-              padding: "0.75rem 1rem",
-              color: "var(--text-primary)",
-              fontSize: "1rem",
-            }}
-            placeholder="vendor"
-            value={entityType}
-            onChange={(e) => setEntityType(e.target.value)}
-            required
-          />
-
-          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-            Display Name
-          </label>
-          <input
-            id="display-name"
-            className="search-input"
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--border-color)",
-              borderRadius: 8,
-              padding: "0.75rem 1rem",
-              color: "var(--text-primary)",
-              fontSize: "1rem",
-            }}
-            placeholder="Stripe"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
-
-          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-            Domain
-          </label>
-          <input
-            id="domain"
-            className="search-input"
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--border-color)",
-              borderRadius: 8,
-              padding: "0.75rem 1rem",
-              color: "var(--text-primary)",
-              fontSize: "1rem",
-            }}
-            placeholder="stripe.com"
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-          />
-
-          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-            Endpoint URL
-          </label>
-          <input
-            id="endpoint-url"
-            className="search-input"
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--border-color)",
-              borderRadius: 8,
-              padding: "0.75rem 1rem",
-              color: "var(--text-primary)",
-              fontSize: "1rem",
-            }}
-            placeholder="https://api.stripe.com"
-            value={endpointUrl}
-            onChange={(e) => setEndpointUrl(e.target.value)}
-          />
-
-          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-            Owner Key (optional DNS proof)
-          </label>
-          <input
-            id="owner-key"
-            className="search-input"
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--border-color)",
-              borderRadius: 8,
-              padding: "0.75rem 1rem",
-              color: "var(--text-primary)",
-              fontSize: "1rem",
-            }}
-            placeholder="ed25519 public key"
-            value={ownerKey}
-            onChange={(e) => setOwnerKey(e.target.value)}
-          />
-
-          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-            Probe URL (health endpoint, preferred over homepage)
-          </label>
-          <input
-            className="search-input"
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--border-color)",
-              borderRadius: 8,
-              padding: "0.75rem 1rem",
-              color: "var(--text-primary)",
-              fontSize: "1rem",
-            }}
-            placeholder="https://api.example.com/health"
-            value={probeUrl}
-            onChange={(e) => setProbeUrl(e.target.value)}
-          />
-
-          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-            Capabilities (comma-separated)
-          </label>
-          <input
-            className="search-input"
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--border-color)",
-              borderRadius: 8,
-              padding: "0.75rem 1rem",
-              color: "var(--text-primary)",
-              fontSize: "1rem",
-            }}
-            placeholder="search, retrieval"
-            value={capabilities}
-            onChange={(e) => setCapabilities(e.target.value)}
-          />
-
-          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-            Payment Model
-          </label>
-          <input
-            className="search-input"
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--border-color)",
-              borderRadius: 8,
-              padding: "0.75rem 1rem",
-              color: "var(--text-primary)",
-              fontSize: "1rem",
-            }}
-            placeholder="x402"
-            value={paymentModel}
-            onChange={(e) => setPaymentModel(e.target.value)}
-          />
-
+          <Field label="Service Key *" hint="Unique id, e.g. acme-search">
+            <input required style={inputStyle} placeholder="acme-search" value={entityKey} onChange={(e) => setEntityKey(e.target.value)} />
+          </Field>
+          <Field label="Display Name">
+            <input style={inputStyle} placeholder="Acme Search API" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+          </Field>
+          <Field label="Entity Type *">
+            <select style={inputStyle} value={entityType} onChange={(e) => setEntityType(e.target.value)}>
+              {ENTITY_TYPES.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Domain">
+            <input style={inputStyle} placeholder="api.acme.com" value={domain} onChange={(e) => setDomain(e.target.value)} />
+          </Field>
+          <Field label="Endpoint URL *" hint="API base URL">
+            <input style={inputStyle} placeholder="https://api.acme.com" value={endpointUrl} onChange={(e) => setEndpointUrl(e.target.value)} />
+          </Field>
+          <Field label="Probe URL *" hint="Unauthenticated health endpoint">
+            <input style={inputStyle} placeholder="https://api.acme.com/health" value={probeUrl} onChange={(e) => setProbeUrl(e.target.value)} />
+          </Field>
+          <Field label="Capabilities" hint="Comma-separated tags for discovery">
+            <input style={inputStyle} placeholder="search, retrieval" value={capabilities} onChange={(e) => setCapabilities(e.target.value)} />
+          </Field>
+          <Field label="Payment Model">
+            <input style={inputStyle} placeholder="x402" value={paymentModel} onChange={(e) => setPaymentModel(e.target.value)} />
+          </Field>
+          <Field label="Auth Type" hint="Use x402-token/bearer/signed only if probes need credentials">
+            <select style={inputStyle} value={authType} onChange={(e) => setAuthType(e.target.value)}>
+              {AUTH_TYPES.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Monitor Tier">
+            <select style={inputStyle} value={monitorTier} onChange={(e) => setMonitorTier(e.target.value)}>
+              <option value="1">1 — frequent (high priority)</option>
+              <option value="2">2 — standard</option>
+              <option value="3">3 — low frequency</option>
+            </select>
+          </Field>
+          <Field label="Owner Key (optional DNS verify)">
+            <input style={inputStyle} placeholder="ed25519 public key" value={ownerKey} onChange={(e) => setOwnerKey(e.target.value)} />
+          </Field>
           <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-            <input
-              type="checkbox"
-              checked={requestMonitoring}
-              onChange={(e) => setRequestMonitoring(e.target.checked)}
-            />
-            Enable continuous monitoring (requires endpoint or probe URL)
+            <input type="checkbox" checked={requestMonitoring} onChange={(e) => setRequestMonitoring(e.target.checked)} />
+            Enable continuous monitoring
           </label>
-
-          <button
-            id="register-btn"
-            type="submit"
-            disabled={isRegistering}
-            style={{
-              marginTop: "0.5rem",
-              padding: "0.85rem 2rem",
-              borderRadius: 9999,
-              border: "none",
-              background: "linear-gradient(135deg, var(--accent-purple), var(--accent-cyan))",
-              color: "#fff",
-              fontSize: "1.05rem",
-              fontWeight: 600,
-              cursor: isRegistering ? "wait" : "pointer",
-              opacity: isRegistering ? 0.7 : 1,
-              transition: "all 0.3s ease",
-              fontFamily: "var(--font-body)",
-            }}
-          >
-            {isRegistering ? "Registering entity..." : "Register Entity"}
+          <button type="submit" disabled={isRegistering} className="register-btn">
+            {isRegistering ? "Registering..." : "Register Service"}
           </button>
-
-          {regStatus && (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.5rem",
-                padding: "0.75rem 1rem",
-                borderRadius: 8,
-                background: regStatus.ok
-                  ? "rgba(16,185,129,0.1)"
-                  : "rgba(239,68,68,0.1)",
-                border: `1px solid ${regStatus.ok ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.3)"}`,
-                color: regStatus.ok ? "var(--success)" : "#ef4444",
-                fontSize: "0.95rem",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                {regStatus.ok ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-                <span>{regStatus.message}</span>
-              </div>
-              {regStatus.hint && (
-                <div
-                  style={{
-                    marginTop: "0.25rem",
-                    padding: "0.6rem 0.85rem",
-                    borderRadius: 6,
-                    background: "rgba(0,0,0,0.25)",
-                    border: "1px solid rgba(239,68,68,0.2)",
-                    fontSize: "0.85rem",
-                    color: "rgba(255,255,255,0.75)",
-                    fontFamily: "monospace",
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-all"
-                  }}
-                >
-                  <strong>How to fix:</strong> {regStatus.hint}
-                </div>
-              )}
-            </div>
-          )}
+          {regStatus && <StatusMessage {...regStatus} />}
         </form>
       </section>
 
-      {/* ── Developer Guide ── */}
-      <section className="onboarding-card">
-        <h2 className="gradient-text">How It Works</h2>
+      <section className="onboarding-card" id="srd-v1">
+        <h2 className="gradient-text">
+          <BookOpen size={24} style={{ verticalAlign: "middle", marginRight: 8 }} />
+          SRD v1 Specification
+        </h2>
         <p className="onboarding-subtitle">
-          Build a reusable intelligence product without binding the framework to
-          one naming protocol or market.
+          Service Readiness Descriptor — canonical registration format. Full doc:{" "}
+          <code>intelligence-gateway-oss/docs/srd-v1.md</code>
         </p>
+        <pre className="schema-block" style={{ textAlign: "left", fontSize: "0.75rem" }}>
+{`POST /v1/entities/register
+{
+  "entity_key": "acme-search",
+  "entity_type": "api",
+  "request_monitoring": true,
+  "endpoint_url": "https://api.acme.com",
+  "sds": {
+    "capabilities": ["search"],
+    "payment_model": "x402",
+    "auth_type": "none",
+    "probe_url": "https://api.acme.com/health",
+    "probe_tier": 2
+  }
+}
 
-        <div className="steps-container">
-          {/* Step 1 */}
-          <div className="step-card">
-            <span className="step-num">1</span>
-            <Terminal size={28} style={{ color: "var(--accent-purple)", marginBottom: "0.75rem" }} />
-            <h3>Collect Evidence</h3>
-            <p>
-              Collector plugins observe domains, APIs, feeds, filings, markets,
-              or datasets and store immutable evidence snapshots.
-            </p>
-            <div className="code-snippet" style={{ fontSize: "0.85rem", whiteSpace: "pre-wrap" }}>
-              DNS, HTTP health, security.txt, status pages, GitHub freshness
-            </div>
-          </div>
-
-          {/* Step 2 */}
-          <div className="step-card">
-            <span className="step-num">2</span>
-            <Cpu size={28} style={{ color: "var(--accent-cyan)", marginBottom: "0.75rem" }} />
-            <h3>Compute Signals</h3>
-            <p>
-              Processors normalize observations into scores, recommendations,
-              and packaged feeds that humans and AI agents can query.
-            </p>
-            <div className="code-snippet" style={{ fontSize: "0.85rem" }}>
-              vendor_api_risk, api_sla, regulatory_change, market_signal
-            </div>
-          </div>
-
-          {/* Step 3 */}
-          <div className="step-card">
-            <span className="step-num">3</span>
-            <Fingerprint size={28} style={{ color: "var(--success)", marginBottom: "0.75rem" }} />
-            <h3>Gate Access</h3>
-            <p>
-              Public profiles stay open. Historical trends, batch checks, and
-              premium feeds can use JWT subscriptions or x402 receipts.
-            </p>
-            <pre className="schema-block" style={{ fontSize: "0.75rem", margin: "0.5rem 0 0 0", textAlign: "left", opacity: 0.9 }}>
-{`{
-  "entity_key": "stripe.com",
-  "entity_type": "vendor",
-  "domain": "stripe.com",
-  "endpoint_url": "https://api.stripe.com"
-}`}
-            </pre>
-          </div>
-        </div>
+GET /v1/services/{entity_key}/ready  → usable, confidence, state`}
+        </pre>
       </section>
 
-      {/* ── Footer ── */}
       <footer className="footer">
         <p>
-          Built by{" "}
-          <a href="https://miraland.io" target="_blank" rel="noopener noreferrer">
-            Miraland Labs
-          </a>{" "}
-          · Powered by{" "}
-          <a href="https://pr402.org" target="_blank" rel="noopener noreferrer">
-            pr402
-          </a>{" "}
-          &amp;{" "}
-          <a href="https://ipay.sh" target="_blank" rel="noopener noreferrer">
-            ipay.sh
-          </a>
-        </p>
-        <p style={{ marginTop: "0.5rem", opacity: 0.6 }}>
-          Open source · Continuous Intelligence · HTTP 402 · MCP-ready feeds
+          API: <a href={`${API_BASE}/health`}>{API_BASE}</a> · SRD v1 ·{" "}
+          <a href="https://ipay.sh" target="_blank" rel="noopener noreferrer">ipay.sh</a>
         </p>
       </footer>
     </div>
   );
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  Entity Card Component
-// ═══════════════════════════════════════════════════════════════
-function EntityCard({ entity }: { entity: EntityResult }) {
-  const [expanded, setExpanded] = useState(false);
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>{label}</label>
+      {hint && <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", opacity: 0.7, marginBottom: 4 }}>{hint}</div>}
+      {children}
+    </div>
+  );
+}
 
+function StatusMessage({ ok, message, hint }: { ok: boolean; message: string; hint?: string }) {
+  return (
+    <div
+      style={{
+        padding: "0.75rem 1rem",
+        borderRadius: 8,
+        background: ok ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
+        border: `1px solid ${ok ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.3)"}`,
+        color: ok ? "var(--success)" : "#ef4444",
+        fontSize: "0.95rem",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        {ok ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+        <span>{message}</span>
+      </div>
+      {hint && <div style={{ marginTop: 8, fontSize: "0.85rem", fontFamily: "monospace" }}>{hint}</div>}
+    </div>
+  );
+}
+
+function ServiceCard({ service }: { service: ServiceResult }) {
   return (
     <article className="agent-card">
       <div className="card-header">
         <h3 className="ans-title">
           <Globe size={22} style={{ color: "var(--accent-cyan)" }} />
-          {entity.display_name ?? entity.entity_key}
+          {service.display_name ?? service.entity_key}
         </h3>
-        {entity.is_verified && (
-          <span className="badge badge-verified">
-            <ShieldCheck size={14} /> Verified
-          </span>
-        )}
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          {service.is_verified && (
+            <span className="badge badge-verified"><ShieldCheck size={14} /> Verified</span>
+          )}
+          <ReadinessBadge readiness={service.readiness} />
+        </div>
       </div>
-
-      <div className="endpoint-info">
-        <ExternalLink size={14} />
-        {entity.endpoint_url ? (
-          <a href={entity.endpoint_url} target="_blank" rel="noopener noreferrer">
-            {entity.endpoint_url}
-          </a>
-        ) : (
-          <span>{entity.domain ?? entity.entity_key}</span>
-        )}
-      </div>
-
+      {service.endpoint_url && (
+        <div className="endpoint-info">
+          <ExternalLink size={14} />
+          <a href={service.endpoint_url} target="_blank" rel="noopener noreferrer">{service.endpoint_url}</a>
+        </div>
+      )}
       <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginTop: "0.5rem" }}>
-        {entity.entity_type} · {entity.entity_key}
+        {service.capabilities.length > 0 ? service.capabilities.join(", ") : "no capabilities"} · {service.entity_key}
       </div>
-
       <div style={{ marginTop: "0.75rem", fontSize: "0.85rem" }}>
         <a
-          href={`${API_BASE}/v1/services/${encodeURIComponent(entity.entity_key)}/ready`}
+          href={`${API_BASE}/v1/services/${encodeURIComponent(service.entity_key)}/ready`}
           target="_blank"
           rel="noopener noreferrer"
           style={{ color: "var(--accent-cyan)" }}
         >
-          Check readiness (/ready)
+          Open /ready JSON
         </a>
       </div>
+    </article>
+  );
+}
 
+function SearchResultCard({ entity }: { entity: EntitySearchResult }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <article className="agent-card">
+      <div className="card-header">
+        <h3 className="ans-title">{entity.display_name ?? entity.entity_key}</h3>
+        {entity.is_verified && (
+          <span className="badge badge-verified"><ShieldCheck size={14} /> Verified</span>
+        )}
+      </div>
+      <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+        {entity.entity_type} · {entity.entity_key}
+      </div>
+      <a
+        href={`${API_BASE}/v1/services/${encodeURIComponent(entity.entity_key)}/ready`}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: "var(--accent-cyan)", fontSize: "0.85rem" }}
+      >
+        Check /ready
+      </a>
       {(entity.signals?.length ?? 0) > 0 && (
         <div className="tools-section">
           <div className="tools-toggle" onClick={() => setExpanded(!expanded)}>
-            <span>{entity.signals?.length} Signal{entity.signals?.length !== 1 ? "s" : ""} Available</span>
+            <span>{entity.signals?.length} signals</span>
             {expanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
           </div>
-
           {expanded && (
             <div className="tools-list">
-              {entity.signals?.map((signal) => (
-                <div key={signal.signal_key} className="tool-item">
-                  <div className="tool-name">{signal.signal_key}</div>
-                  <div className="tool-description">
-                    {signal.recommendation ?? signal.signal_type}
-                    {typeof signal.score === "number" ? ` · score ${signal.score}` : ""}
-                  </div>
-                  {signal.payload && (
-                    <pre className="schema-block">
-                      {JSON.stringify(signal.payload, null, 2)}
-                    </pre>
-                  )}
+              {entity.signals?.map((s) => (
+                <div key={s.signal_key} className="tool-item">
+                  <div className="tool-name">{s.signal_key}</div>
+                  <div className="tool-description">{s.recommendation ?? ""}</div>
                 </div>
               ))}
             </div>

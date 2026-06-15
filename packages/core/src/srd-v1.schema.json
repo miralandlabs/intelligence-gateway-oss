@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intel.pr402.org/schemas/srd-v1.json",
+  "title": "Service Readiness Descriptor Registration",
+  "description": "SRD v1 — POST /v1/entities/register payload for x402 Readiness Oracle",
+  "type": "object",
+  "required": ["entity_key", "entity_type"],
+  "properties": {
+    "entity_key": { "type": "string", "minLength": 1 },
+    "entity_type": {
+      "type": "string",
+      "enum": ["domain", "api", "vendor", "dataset", "market", "filing", "protocol", "other"]
+    },
+    "display_name": { "type": "string" },
+    "domain": { "type": "string" },
+    "endpoint_url": { "type": "string", "format": "uri" },
+    "owner_key": { "type": "string", "minLength": 10 },
+    "request_monitoring": { "type": "boolean" },
+    "monitor_tier": { "type": "integer", "enum": [1, 2, 3] },
+    "watchlist_owner": { "type": "string" },
+    "sds": {
+      "type": "object",
+      "properties": {
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "payment_model": { "type": "string" },
+        "auth_type": { "type": "string", "enum": ["x402-token", "bearer", "signed", "none"] },
+        "probe_url": { "type": "string", "format": "uri" },
+        "declared_sla": {
+          "type": "object",
+          "properties": {
+            "latency_p95_ms": { "type": "number", "exclusiveMinimum": 0 },
+            "uptime": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "probe_tier": { "type": "integer", "enum": [1, 2, 3] }
+      }
+    }
+  }
+}
