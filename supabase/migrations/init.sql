@@ -31,12 +31,16 @@ CREATE TABLE public.entities (
   owner_key TEXT,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  is_monitored BOOLEAN NOT NULL DEFAULT FALSE,
+  monitor_tier SMALLINT NOT NULL DEFAULT 2,
+  watchlist_owner TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW()),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW()),
   CONSTRAINT entities_entity_key_unique UNIQUE (entity_key),
   CONSTRAINT entities_entity_type_check CHECK (
     entity_type IN ('domain', 'api', 'vendor', 'dataset', 'market', 'filing', 'protocol', 'other')
-  )
+  ),
+  CONSTRAINT entities_monitor_tier_check CHECK (monitor_tier IN (1, 2, 3))
 );
 
 CREATE TRIGGER entities_set_updated_at
@@ -198,6 +202,8 @@ CREATE INDEX idx_audit_events_feed_id ON public.audit_events(feed_id) WHERE feed
 CREATE INDEX idx_entities_domain ON public.entities(domain) WHERE domain IS NOT NULL;
 CREATE INDEX idx_entities_type ON public.entities(entity_type);
 CREATE INDEX idx_entities_verified ON public.entities(is_verified) WHERE is_verified = TRUE;
+CREATE INDEX idx_entities_monitored ON public.entities(is_monitored, monitor_tier) WHERE is_monitored = TRUE;
+CREATE INDEX idx_entities_watchlist_owner ON public.entities(watchlist_owner) WHERE watchlist_owner IS NOT NULL;
 
 CREATE INDEX idx_entities_search ON public.entities
   USING gin(
@@ -234,6 +240,34 @@ INSERT INTO public.feeds (
   '{
     "public_profile": 0,
     "history_usdc_monthly": 29
+  }'::jsonb,
+  TRUE
+);
+
+INSERT INTO public.feeds (
+  feed_key,
+  feed_name,
+  description,
+  schema_definition,
+  access_mode,
+  pricing,
+  is_active
+) VALUES (
+  'service_readiness',
+  'Service Readiness Oracle',
+  'Agent-facing readiness snapshots: usable, confidence, latency, and freshness for x402-paid services.',
+  '{
+    "entity_key": "string",
+    "usable": "boolean|null",
+    "confidence": "number",
+    "latency_ms": "number|null",
+    "state": "string",
+    "last_verified": "string"
+  }'::jsonb,
+  'public',
+  '{
+    "public_ready_stale_24h": 0,
+    "fresh_ready_usdc_monthly": 19
   }'::jsonb,
   TRUE
 );

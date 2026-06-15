@@ -65,6 +65,10 @@ export default function App() {
   const [domain, setDomain] = useState("");
   const [endpointUrl, setEndpointUrl] = useState("");
   const [ownerKey, setOwnerKey] = useState("");
+  const [requestMonitoring, setRequestMonitoring] = useState(true);
+  const [paymentModel, setPaymentModel] = useState("x402");
+  const [capabilities, setCapabilities] = useState("");
+  const [probeUrl, setProbeUrl] = useState("");
   const [isRegistering, setIsRegistering] = useState(false);
   const [regStatus, setRegStatus] = useState<{
     ok: boolean;
@@ -122,6 +126,15 @@ export default function App() {
           domain: sanitizedDomain || undefined,
           endpoint_url: endpointUrl.trim() || undefined,
           owner_key: ownerKey.trim() || undefined,
+          request_monitoring: requestMonitoring,
+          sds: {
+            payment_model: paymentModel || undefined,
+            capabilities: capabilities
+              .split(",")
+              .map((c) => c.trim())
+              .filter(Boolean),
+            probe_url: probeUrl.trim() || undefined,
+          },
         }),
       });
       const json = await res.json();
@@ -133,6 +146,10 @@ export default function App() {
         setDomain("");
         setEndpointUrl("");
         setOwnerKey("");
+        setRequestMonitoring(true);
+        setPaymentModel("x402");
+        setCapabilities("");
+        setProbeUrl("");
       } else {
         setRegStatus({ 
           ok: false, 
@@ -156,9 +173,8 @@ export default function App() {
           <span className="accent-text-glow">Intelligence Gateway</span>
         </h1>
         <p>
-          A continuous intelligence catalog for entities, evidence, signals,
-          and paid machine-readable feeds. Start with vendor and API risk,
-          then plug in new domains without rebuilding the platform.
+          x402 paid service discovery and readiness oracle. Agents call{" "}
+          <code>/v1/services/:key/ready</code> before spending on a paid API call.
         </p>
       </header>
 
@@ -328,6 +344,69 @@ export default function App() {
             value={ownerKey}
             onChange={(e) => setOwnerKey(e.target.value)}
           />
+
+          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+            Probe URL (health endpoint, preferred over homepage)
+          </label>
+          <input
+            className="search-input"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid var(--border-color)",
+              borderRadius: 8,
+              padding: "0.75rem 1rem",
+              color: "var(--text-primary)",
+              fontSize: "1rem",
+            }}
+            placeholder="https://api.example.com/health"
+            value={probeUrl}
+            onChange={(e) => setProbeUrl(e.target.value)}
+          />
+
+          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+            Capabilities (comma-separated)
+          </label>
+          <input
+            className="search-input"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid var(--border-color)",
+              borderRadius: 8,
+              padding: "0.75rem 1rem",
+              color: "var(--text-primary)",
+              fontSize: "1rem",
+            }}
+            placeholder="search, retrieval"
+            value={capabilities}
+            onChange={(e) => setCapabilities(e.target.value)}
+          />
+
+          <label style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+            Payment Model
+          </label>
+          <input
+            className="search-input"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid var(--border-color)",
+              borderRadius: 8,
+              padding: "0.75rem 1rem",
+              color: "var(--text-primary)",
+              fontSize: "1rem",
+            }}
+            placeholder="x402"
+            value={paymentModel}
+            onChange={(e) => setPaymentModel(e.target.value)}
+          />
+
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+            <input
+              type="checkbox"
+              checked={requestMonitoring}
+              onChange={(e) => setRequestMonitoring(e.target.checked)}
+            />
+            Enable continuous monitoring (requires endpoint or probe URL)
+          </label>
 
           <button
             id="register-btn"
@@ -509,6 +588,17 @@ function EntityCard({ entity }: { entity: EntityResult }) {
 
       <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginTop: "0.5rem" }}>
         {entity.entity_type} · {entity.entity_key}
+      </div>
+
+      <div style={{ marginTop: "0.75rem", fontSize: "0.85rem" }}>
+        <a
+          href={`${API_BASE}/v1/services/${encodeURIComponent(entity.entity_key)}/ready`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "var(--accent-cyan)" }}
+        >
+          Check readiness (/ready)
+        </a>
       </div>
 
       {(entity.signals?.length ?? 0) > 0 && (

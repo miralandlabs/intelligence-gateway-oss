@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ServiceDescriptorSchema } from "./sds";
 
 export const EntityTypeSchema = z.enum([
   "domain",
@@ -22,6 +23,50 @@ export const EntitySchema = z.object({
   endpoint_url: z.string().url().optional(),
   owner_key: z.string().min(10).optional(),
   metadata: z.record(z.unknown()).optional().default({}),
+});
+
+export const EntityRegistrationSchema = EntitySchema.extend({
+  request_monitoring: z.boolean().optional(),
+  watchlist_owner: z.string().min(1).optional(),
+  monitor_tier: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+  sds: ServiceDescriptorSchema.optional(),
+});
+
+export const WatchlistImportSchema = z.object({
+  watchlist_owner: z.string().min(1).optional(),
+  monitor_tier: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional().default(2),
+  entities: z
+    .array(
+      z.object({
+        entity_key: z.string().min(1),
+        entity_type: EntityTypeSchema.optional(),
+        display_name: z.string().optional(),
+        domain: z.string().optional(),
+        endpoint_url: z.string().url().optional(),
+        owner_key: z.string().optional(),
+        sds: ServiceDescriptorSchema.optional(),
+        metadata: z.record(z.unknown()).optional(),
+        probe_auth: z
+          .object({
+            probe_enabled: z.boolean().default(true),
+            authorization: z.string().optional(),
+            api_key: z.string().optional(),
+            api_key_header: z.string().optional(),
+          })
+          .optional(),
+      })
+    )
+    .min(1)
+    .max(500),
+});
+
+export const VendorBatchAuditSchema = z.object({
+  entity_keys: z.array(z.string().min(1)).min(1).max(100),
+});
+
+export const Pr402SyncSchema = z.object({
+  resources_url: z.string().url().optional(),
+  dry_run: z.boolean().optional().default(false),
 });
 
 export const SourceDescriptorSchema = z.object({
@@ -74,6 +119,10 @@ export type EntityType = z.infer<typeof EntityTypeSchema>;
 export type AccessMode = z.infer<typeof AccessModeSchema>;
 export type Entity = z.infer<typeof EntitySchema>;
 export type EntityInput = z.input<typeof EntitySchema>;
+export type EntityRegistration = z.infer<typeof EntityRegistrationSchema>;
+export type WatchlistImport = z.infer<typeof WatchlistImportSchema>;
+export type VendorBatchAudit = z.infer<typeof VendorBatchAuditSchema>;
+export type Pr402SyncRequest = z.infer<typeof Pr402SyncSchema>;
 export type SourceDescriptor = z.infer<typeof SourceDescriptorSchema>;
 export type Observation = z.infer<typeof ObservationSchema>;
 export type Signal = z.infer<typeof SignalSchema>;

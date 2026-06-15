@@ -8,9 +8,9 @@ compatibility_date = "2024-05-29"
 # Reset cursor:   curl -X POST https://collector.pr402.org/reset
 route = { pattern = "collector.pr402.org", custom_domain = true }
 
-# Scheduled cron — process one batch every 4 hours (KV-backed cursor)
+# Scheduled cron — rotate probe batches every 5 minutes (tier-weighted sampling)
 [triggers]
-crons = ["0 */4 * * *"]
+crons = ["*/5 * * * *"]
 
 # KV namespace for collector cursor (persists across cron invocations)
 # Create with: npx wrangler kv namespace create COLLECTOR_STATE
@@ -19,8 +19,26 @@ crons = ["0 */4 * * *"]
 binding = "COLLECTOR_STATE"
 id = "e261dfed6468406abd2c3abc2aa19f76"
 
+# KV namespace for agent-facing readiness hot cache
+# BOTH intel-collector and intel-gateway must use the SAME namespace id.
+#
+# Create once (from this directory, after `npx wrangler login`):
+#   npx wrangler kv namespace create READINESS_CACHE
+# Copy the returned `id` into BOTH:
+#   intelligence-gateway-oss/packages/crawler/wrangler.toml
+#   intelligence-gateway-private/packages/gateway/wrangler.toml
+#
+# Optional local dev preview namespace:
+#   npx wrangler kv namespace create READINESS_CACHE --preview
+# Then add preview_id below (collector only, if you use wrangler dev --remote).
+[[kv_namespaces]]
+binding = "READINESS_CACHE"
+id = "86c85cce38104f5c83dbc5b0d325f426"
+# preview_id = "PASTE_PREVIEW_ID_HERE"
+
 [vars]
 SUPABASE_URL = "https://frbnqmsgcdhcupwsjmwe.supabase.co"
+ALLOW_DEMO_ENTITIES = "false"
 # Secrets — inject via wrangler CLI (never commit these):
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 #   wrangler secret put GITHUB_TOKEN
