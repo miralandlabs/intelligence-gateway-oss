@@ -1,0 +1,13 @@
+{
+  "name": "intelligence-gateway-oss",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:collector": "wrangler dev --cwd packages/crawler",
+    "deploy:collector": "wrangler deploy --cwd packages/crawler",
+    "dev:console": "yarn workspace @miraland/intel-console dev"
+  }
+}

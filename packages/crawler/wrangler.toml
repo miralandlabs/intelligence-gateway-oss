@@ -1,0 +1,26 @@
+name = "intel-collector"
+main = "src/index.ts"
+compatibility_date = "2024-05-29"
+
+# Custom domain — collector is reachable at https://collector.pr402.org
+# Manual trigger: curl https://collector.pr402.org
+# Status:         curl https://collector.pr402.org/status
+# Reset cursor:   curl -X POST https://collector.pr402.org/reset
+route = { pattern = "collector.pr402.org", custom_domain = true }
+
+# Scheduled cron — process one batch every 4 hours (KV-backed cursor)
+[triggers]
+crons = ["0 */4 * * *"]
+
+# KV namespace for collector cursor (persists across cron invocations)
+# Create with: npx wrangler kv namespace create COLLECTOR_STATE
+# Then paste the returned id below:
+[[kv_namespaces]]
+binding = "COLLECTOR_STATE"
+id = "e261dfed6468406abd2c3abc2aa19f76"
+
+[vars]
+SUPABASE_URL = "https://frbnqmsgcdhcupwsjmwe.supabase.co"
+# Secrets — inject via wrangler CLI (never commit these):
+#   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+#   wrangler secret put GITHUB_TOKEN
